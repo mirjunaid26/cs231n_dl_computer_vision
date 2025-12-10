@@ -1,56 +1,111 @@
-# Image Classification Pipeline
+# Deep Learning Toolkit & CIFAR-10 Challenge
 
-This package implements a complete image classification pipeline using only Python and NumPy. It includes implementations of k-Nearest Neighbors (kNN), Support Vector Machines (SVM), Softmax Classifiers, and a Two-Layer Neural Network.
+This repository contains a modular, university-level implementation of Deep Learning components from scratch using **Python and NumPy**, culminating in a **PyTorch** solution for the CIFAR-10 dataset.
 
-## Setup
+## 📂 Project Structure
 
-1.  **Install Requirements**
-    Ensure you have [Anaconda](https://www.anaconda.com/products/individual) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html) installed. Create and activate the environment:
+```
+cs231n_dl_computer_vision/
+│
+├── Core (NumPy)
+│   ├── layers.py              # Affine, ReLU, Softmax, SVM
+│   ├── optim.py               # SGD, Momentum, Adam, RMSProp
+│   ├── batchnorm.py           # Batch Normalization (Forward/Backward/Spatial)
+│   ├── dropout.py             # Inverted Dropout
+│   ├── conv_layers.py         # Naive Convolution & Pooling
+│   ├── fast_layers.py         # Optimized Im2Col Convolution
+│   ├── layer_utils.py         # Composite layers (e.g., Affine-ReLU)
+│   ├── utils.py               # Data loading & Gradient checking
+│
+├── Models
+│   ├── fully_connected_net.py # Arbitrary depth FC Nets
+│   ├── cnn_model.py           # 3-Layer CNN
+│   ├── trainer.py             # Training loop & Solver
+│
+├── PyTorch Scale-up
+│   └── pytorch_cifar10.py     # Custom ResNet on CIFAR-10 with GPU support
+│
+├── environment.yml            # Conda environment definition
+└── README.md                  # This file
+```
+
+## 🚀 Setup
+
+1.  **Create Conda Environment**
     ```bash
     conda env create -f environment.yml
     conda activate cs231n
     ```
 
-2.  **(Optional) Download the CIFAR-10 dataset**
-    - Download `cifar-10-python.tar.gz` from [https://www.cs.toronto.edu/~kriz/cifar.html](https://www.cs.toronto.edu/~kriz/cifar.html).
-    - Extract it in the project root directory.
-    - The code expects the folder `cifar-10-batches-py`.
-    - **Note:** If no dataset is found, the code will automatically generate synthetic data for demonstration purposes.
+2.  **Dataset**
+    The scripts will automatically download CIFAR-10. If not, it expects `cifar-10-batches-py` in the `data/` or root directory.
 
-## Project Structure
+## 🧠 Components & Mathematical Derivations
 
-The project is organized as follows:
+### 1. Fully Connected Layers
 
-- **Classifiers**:
-    - `knn_classifier.py`: k-Nearest Neighbor classifier with vectorized distance computations.
-    - `svm_classifier.py`: Linear SVM with vectorized hinge loss and SGD training.
-    - `softmax_classifier.py`: Softmax classifier with vectorized cross-entropy loss and SGD.
-    - `two_layer_net.py`: Fully connected neural network with ReLU and modular forward/backward passes.
-- **Utilities**:
-    - `data_utils.py`: Utilities for loading CIFAR-10, splitting data, and preprocessing.
-    - `features.py`: Feature extraction utilities (Color Histograms, HOG-like features).
-    - `evaluate.py`: Evaluation metrics and comparison utilities.
-- **Main**:
-    - `train_pipeline.py`: Main script to train and evaluate all models.
+**Forward Pass**: $y = xW + b$
 
-## Usage
+**Backward Pass Gradients**:
+Given upstream gradient $\frac{\partial L}{\partial y}$ (shape $N \times M$):
+- $\frac{\partial L}{\partial b} = \sum_{i=1}^N \frac{\partial L}{\partial y_i}$
+- $\frac{\partial L}{\partial W} = x^T \cdot \frac{\partial L}{\partial y}$
+- $\frac{\partial L}{\partial x} = \frac{\partial L}{\partial y} \cdot W^T$
 
-To run the full training pipeline and see comparison results:
+### 2. Batch Normalization
 
-```bash
-python train_pipeline.py
+We implement Batch Normalization to stabilize training.
+
+**Forward**:
+$\mu = \frac{1}{N}\sum x_i$
+$\sigma^2 = \frac{1}{N}\sum (x_i - \mu)^2$
+$\hat{x}_i = \frac{x_i - \mu}{\sqrt{\sigma^2 + \epsilon}}$
+$y_i = \gamma \hat{x}_i + \beta$
+
+**Backward (Alternative Derivation)**:
+Instead of backpropagating through every intermediate step, we use the simplified gradient for $\hat{x}$:
+$\frac{\partial L}{\partial x} = \frac{1}{N\sqrt{\sigma^2+\epsilon}} \left( N \frac{\partial L}{\partial \hat{x}} - \sum \frac{\partial L}{\partial \hat{x}} - \hat{x} \sum (\frac{\partial L}{\partial \hat{x}} \cdot \hat{x}) \right)$
+Multiply by $\gamma$ to get final gradient w.r.t input.
+
+### 3. Dropout (Inverted)
+
+**Train**: $mask \sim Bernoulli(p)$, $y = x \odot mask / p$
+**Test**: $y = x$
+The division by $p$ during training ensures the expected output magnitude remains constant, so no scaling is needed at test time.
+
+### 4. Convolution (Im2Col Optimization)
+
+Naive convolution with nested loops is slow ($O(N \cdot C \cdot H \cdot W \cdot F \cdot HH \cdot WW)$).
+We optimize this using `im2col`:
+1.  **Im2Col**: Reshape input image patches into columns of a large matrix $X_{col}$.
+2.  **Filter**: Reshape filters into rows of a matrix $W_{row}$.
+3.  **GEMM**: Compute $Out = W_{row} \cdot X_{col}$.
+4.  **Col2Im**: Reshape result back to $(N, F, H', W')$.
+
+## 🏃 Usage
+
+### Train NumPy Models
+You can script the training using the `Solver` class in `trainer.py` or import models in your scripts.
+
+```python
+from fully_connected_net import FullyConnectedNet
+from trainer import Solver
+from utils import get_cifar10_data
+
+data = get_cifar10_data()
+model = FullyConnectedNet(hidden_dims=[100, 100], dropout=0.5, use_batchnorm=True)
+solver = Solver(model, data, update_rule='adam', num_epochs=10)
+solver.train()
 ```
 
-### Expected Output
+### Train PyTorch Model
+We provide a high-performance training script with a Custom ResNet architecture.
 
-The script will:
-1.  Load the data (or generate synthetic data).
-2.  Train each model (kNN, SVM, Softmax, Two-Layer Net) on **Raw Pixels**.
-3.  Train linear classifiers and the neural net on **Extracted Features** (HOG + Color Histograms).
-4.  Print a comparison table of training and validation accuracies.
-
-## Implementation Details
-
-- **Vectorization**: All loss functions and gradients are fully vectorized using NumPy broadcasting to ensure high performance compared to explicit loops.
-- **Modularity**: The Neural Network implementation separates loss computation, parameter updates, and prediction.
-- **Features**: The pipeline compares performance on raw pixel data vs. extracted features (HOG and Color Histograms).
+```bash
+python pytorch_cifar10.py
+```
+**Features**:
+- Data Augmentation (RandomCrop, Flip)
+- Adam Optimizer with MultiStepLR
+- Checkpointing best models
+- Validation Accuracy logging
